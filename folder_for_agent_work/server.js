@@ -264,13 +264,14 @@ const playerRoom = new Map(); // socketId -> roomId
  * 6桁の英数字ルームIDを生成する（衝突回避）
  */
 function generateRoomId() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 長さ32
+  // 256 % 32 === 0 のため、0-255 → 0-31 はバイアスなし
   for (let attempt = 0; attempt < 30; attempt++) {
-    // crypto.randomBytes で衝突しにくい ID を生成
     const buf = crypto.randomBytes(ROOM_ID_LENGTH);
     let id = '';
     for (let i = 0; i < ROOM_ID_LENGTH; i++) {
-      id += chars[buf[i] % chars.length];
+      // 32 の倍数(256)で割れるためモジュロバイアスは発生しない
+      id += chars[buf[i] & 0x1f];
     }
     if (!rooms.has(id)) return id;
   }
