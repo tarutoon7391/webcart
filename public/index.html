@@ -1801,9 +1801,15 @@ function getProjectileCandidates(ownerKart) {
     const localTargets = karts
         .filter(k => k !== ownerKart && !k.isFinished)
         .map(k => ({ kind: 'local', kart: k }));
+    let excludedRemoteOwnerId = null;
+    if (ownerKart && typeof ownerKart.ownerSocketId === 'string') {
+        excludedRemoteOwnerId = ownerKart.ownerSocketId;
+    } else if (ownerKart && ownerKart.kind === 'remote' && typeof ownerKart.id === 'string') {
+        excludedRemoteOwnerId = ownerKart.id;
+    }
     const remoteTargets = Net.getRemoteProjectileTargets().filter(target => {
-        if (!ownerKart || !ownerKart.ownerSocketId) return true;
-        return target.id !== ownerKart.ownerSocketId;
+        if (!excludedRemoteOwnerId) return true;
+        return target.id !== excludedRemoteOwnerId;
     });
     return localTargets.concat(remoteTargets);
 }
@@ -1888,7 +1894,7 @@ function handleProjectileHit(projectile, target) {
     for(let i=0; i<15; i++) ParticleSys.spawn(hitPos, projectile.type === '🔴' ? 0xff0000 : 0x0000ff, 15);
 }
 
-function createProjectile(type, startPos, ownerKart, targetKart, fwdDir, ownerSocketId = null) {
+function createProjectile(type, startPos, ownerKart, targetKart, fwdDir) {
     const color = type === '🔴' ? 0xff0000 : 0x0000ff;
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.5, 12, 12), new THREE.MeshStandardMaterial({color: color, emissive: color, emissiveIntensity: 0.3}));
     mesh.position.copy(startPos);
@@ -1903,7 +1909,6 @@ function createProjectile(type, startPos, ownerKart, targetKart, fwdDir, ownerSo
         speed: type === '🔵' ? 50 : 35,
         active: true,
         life: 8.0,
-        ownerSocketId,
     });
 }
 
@@ -2207,7 +2212,8 @@ const Net = (() => {
                 if (!type) return;
                 const startPos = new THREE.Vector3(data.position.x, data.position.y, data.position.z);
                 const target = data.targetSocketId ? getRemoteProjectileTargetById(data.targetSocketId) : null;
-                createProjectile(type, startPos, { ownerSocketId: data.ownerSocketId || null }, target, null, data.ownerSocketId || null);
+                const ownerSocketId = typeof data.ownerSocketId === 'string' ? data.ownerSocketId : null;
+                createProjectile(type, startPos, { ownerSocketId }, target, null);
             }
         });
         socket.on('lap_complete', ({ username, lap }) => {
