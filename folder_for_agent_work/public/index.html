@@ -218,12 +218,33 @@
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #000; touch-action: none; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         #game-canvas { display: block; width: 100%; height: 100%; }
-        #scene-title { overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+        #scene-title .title-inner {
+            width: min(100%, 32rem);
+            max-height: 100vh;
+            max-height: 100svh;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
+            padding: 20px 16px 28px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        #scene-title .course-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            align-items: stretch;
+            width: 100%;
+        }
+        #scene-title .title-course-select { width: 100%; }
+        #scene-title .course-btn { width: 100%; }
         @media (max-width: 639px) {
             #scene-title { justify-content: flex-start; padding: 16px 12px 28px; }
+            #scene-title .title-inner { width: 100%; max-height: 100vh; max-height: 100svh; padding: 0; }
             #scene-title h1 { font-size: clamp(2.5rem, 14vw, 3.75rem); margin-bottom: 0.25rem; }
-            #scene-title > p { font-size: 1rem; margin-bottom: 1.25rem; text-align: center; }
-            #scene-title > div { margin-bottom: 1rem; }
+            #scene-title .title-subtitle { font-size: 1rem; margin-bottom: 1.25rem; text-align: center; }
+            #scene-title .title-inner > div { margin-bottom: 1rem; }
             #scene-title .course-btn { padding: 10px 14px !important; font-size: 13px !important; min-width: 110px !important; }
             #scene-title .bg-black.bg-opacity-50 { width: min(100%, 24rem); padding: 0.875rem; font-size: 0.8125rem; line-height: 1.45; }
             #scene-title #btn-start { font-size: 1.625rem; padding: 0.75rem 1.75rem; margin-top: 0.25rem; margin-bottom: 0.5rem; }
@@ -246,41 +267,47 @@
 
     <!-- Title Scene -->
     <div id="scene-title" class="absolute inset-0 flex flex-col items-center justify-center bg-blue-900 bg-opacity-80 z-50">
-        <h1 class="text-7xl font-black text-white italic tracking-wider mb-2" style="text-shadow: 4px 4px 0 #e11d48, 8px 8px 0 #000;">WebKart</h1>
-        <p class="text-xl text-yellow-300 font-bold mb-8">Three.js × Cannon.js Racing</p>
-        
-        <!-- コース選択 -->
-        <div class="mb-8">
-            <p class="text-center text-gray-300 font-bold mb-3 tracking-wider">COURSE SELECT</p>
-            <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;">
-                <button class="course-btn pointer-events-auto" data-course="mario_circuit" style="padding:12px 20px;background:rgba(37,99,235,0.85);border:3px solid #1d4ed8;border-radius:12px;color:#fff;font-weight:900;font-size:14px;cursor:pointer;min-width:130px;transition:all 0.15s;">
-                    🌿 マリオサーキット
-                </button>
-                <button class="course-btn pointer-events-auto" data-course="desert" style="padding:12px 20px;background:rgba(180,83,9,0.75);border:3px solid #92400e;border-radius:12px;color:#fff;font-weight:900;font-size:14px;cursor:pointer;min-width:130px;transition:all 0.15s;">
-                    🏜️ サンドデザート
-                </button>
-                <button class="course-btn pointer-events-auto" data-course="night" style="padding:12px 20px;background:rgba(15,23,42,0.85);border:3px solid #334155;border-radius:12px;color:#fff;font-weight:900;font-size:14px;cursor:pointer;min-width:130px;transition:all 0.15s;">
-                    🌙 ナイトシティ
-                </button>
+        <div class="title-inner">
+            <h1 class="text-7xl font-black text-white italic tracking-wider mb-2" style="text-shadow: 4px 4px 0 #e11d48, 8px 8px 0 #000;">WebKart</h1>
+            <p class="title-subtitle text-xl text-yellow-300 font-bold mb-8">Three.js × Cannon.js Racing</p>
+            
+            <!-- コース選択 -->
+            <div class="title-course-select mb-8">
+                <p class="text-center text-gray-300 font-bold mb-3 tracking-wider">COURSE SELECT</p>
+                <div class="course-list">
+                    <button class="course-btn pointer-events-auto" data-course="mario_circuit" style="padding:12px 20px;background:rgba(37,99,235,0.85);border:3px solid #1d4ed8;border-radius:12px;color:#fff;font-weight:900;font-size:14px;cursor:pointer;min-width:130px;transition:all 0.15s;">
+                        🌿 マリオサーキット
+                    </button>
+                    <button class="course-btn pointer-events-auto" data-course="desert" style="padding:12px 20px;background:rgba(180,83,9,0.75);border:3px solid #92400e;border-radius:12px;color:#fff;font-weight:900;font-size:14px;cursor:pointer;min-width:130px;transition:all 0.15s;">
+                        🏜️ サンドデザート
+                    </button>
+                    <button class="course-btn pointer-events-auto" data-course="night" style="padding:12px 20px;background:rgba(15,23,42,0.85);border:3px solid #334155;border-radius:12px;color:#fff;font-weight:900;font-size:14px;cursor:pointer;min-width:130px;transition:all 0.15s;">
+                        🌙 ナイトシティ
+                    </button>
+                </div>
             </div>
+            
+            <button id="btn-toggle-controls" class="mb-4 px-4 py-2 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-lg border border-blue-300 pointer-events-auto">
+                操作方法を見る
+            </button>
+
+            <div id="title-controls" class="hidden bg-black bg-opacity-50 p-6 rounded-xl text-white mb-8 max-w-md text-sm leading-relaxed border border-gray-600">
+                <h3 class="font-bold text-lg mb-2 text-blue-300 border-b border-blue-500 pb-1">操作方法 (Controls)</h3>
+                <ul class="space-y-1">
+                    <li><span class="text-yellow-400 font-bold">W / ↑</span> : アクセル (カウント1から押し始めるとダッシュ！)</li>
+                    <li><span class="text-yellow-400 font-bold">S / ↓</span> : ブレーキ・バック</li>
+                    <li><span class="text-yellow-400 font-bold">A / D / ← / →</span> : ステアリング</li>
+                    <li><span class="text-yellow-400 font-bold">Shift</span> : ドリフト (押し続けでミニターボ蓄積)</li>
+                    <li><span class="text-yellow-400 font-bold">Space</span> : アイテム使用</li>
+                    <li><span class="text-yellow-400 font-bold">R (長押し)</span> : 後方視点</li>
+                    <li><span class="text-yellow-400 font-bold">Esc</span> : ポーズ</li>
+                </ul>
+            </div>
+            
+            <button id="btn-start" class="px-10 py-4 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-400 hover:to-green-500 text-white text-3xl font-black rounded-full shadow-[0_6px_0_#166534] active:shadow-none active:translate-y-2 transition-all cursor-pointer pointer-events-auto">
+                RACE START!
+            </button>
         </div>
-        
-        <div class="bg-black bg-opacity-50 p-6 rounded-xl text-white mb-8 max-w-md text-sm leading-relaxed border border-gray-600">
-            <h3 class="font-bold text-lg mb-2 text-blue-300 border-b border-blue-500 pb-1">操作方法 (Controls)</h3>
-            <ul class="space-y-1">
-                <li><span class="text-yellow-400 font-bold">W / ↑</span> : アクセル (カウント1から押し始めるとダッシュ！)</li>
-                <li><span class="text-yellow-400 font-bold">S / ↓</span> : ブレーキ・バック</li>
-                <li><span class="text-yellow-400 font-bold">A / D / ← / →</span> : ステアリング</li>
-                <li><span class="text-yellow-400 font-bold">Shift</span> : ドリフト (押し続けでミニターボ蓄積)</li>
-                <li><span class="text-yellow-400 font-bold">Space</span> : アイテム使用</li>
-                <li><span class="text-yellow-400 font-bold">R (長押し)</span> : 後方視点</li>
-                <li><span class="text-yellow-400 font-bold">Esc</span> : ポーズ</li>
-            </ul>
-        </div>
-        
-        <button id="btn-start" class="px-10 py-4 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-400 hover:to-green-500 text-white text-3xl font-black rounded-full shadow-[0_6px_0_#166534] active:shadow-none active:translate-y-2 transition-all cursor-pointer pointer-events-auto">
-            RACE START!
-        </button>
     </div>
 
     <!-- Pause Scene -->
@@ -1559,6 +1586,14 @@ function init() {
 
     document.getElementById('btn-start').addEventListener('click', startSequence);
     document.getElementById('btn-retry').addEventListener('click', resetGame);
+    const controlsToggleBtn = document.getElementById('btn-toggle-controls');
+    const titleControls = document.getElementById('title-controls');
+    if (controlsToggleBtn && titleControls) {
+        controlsToggleBtn.addEventListener('click', () => {
+            const isNowHidden = titleControls.classList.toggle('hidden');
+            controlsToggleBtn.textContent = isNowHidden ? '操作方法を見る' : '操作方法を閉じる';
+        });
+    }
 
     // コース選択ボタン: 切替時にプレビューも更新
     document.querySelectorAll('.course-btn').forEach(btn => {
