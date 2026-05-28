@@ -1680,12 +1680,24 @@ class Kart {
             } else if (itemToUse === '🍌') {
                 const trapPos = new THREE.Vector3(pos.x - fwdDir.x * 2, pos.y, pos.z - fwdDir.z * 2);
                 createTrap(trapPos, this);
+                Net.notifyItemPlaced({
+                    type: 'banana',
+                    position: { x: trapPos.x, y: trapPos.y, z: trapPos.z },
+                });
             } else if (itemToUse === '🔴') {
                 let target = karts.find(k => k.rank === this.rank - 1 && !k.isFinished);
                 if (target === this) target = null;
                 const startPos = new THREE.Vector3(pos.x + fwdDir.x * 2, pos.y, pos.z + fwdDir.z * 2);
                 const projectileTarget = target ?? pickProjectileTarget('🔴', this, startPos, fwdDir);
                 createProjectile('🔴', startPos, this, projectileTarget, fwdDir);
+                Net.notifyItemPlaced({
+                    type: 'shell',
+                    color: 'red',
+                    position: { x: startPos.x, y: startPos.y, z: startPos.z },
+                    targetSocketId: projectileTarget && projectileTarget.kind === 'remote'
+                        ? projectileTarget.id
+                        : null,
+                });
             } else if (itemToUse === '🔵') {
                 let target = karts.find(k => k.rank === 1 && !k.isFinished);
                 if (target === this) target = karts.find(k => k.rank === 2 && !k.isFinished);
@@ -1693,6 +1705,14 @@ class Kart {
                 const startPos = new THREE.Vector3(pos.x + fwdDir.x * 2, pos.y + 2, pos.z + fwdDir.z * 2);
                 const projectileTarget = target ?? pickProjectileTarget('🔵', this, startPos, fwdDir);
                 createProjectile('🔵', startPos, this, projectileTarget, fwdDir);
+                Net.notifyItemPlaced({
+                    type: 'shell',
+                    color: 'blue',
+                    position: { x: startPos.x, y: startPos.y, z: startPos.z },
+                    targetSocketId: projectileTarget && projectileTarget.kind === 'remote'
+                        ? projectileTarget.id
+                        : null,
+                });
             }
             this.item = null;
             if (this.isPlayer) updateHUDItem('');
@@ -1781,7 +1801,11 @@ function getProjectileCandidates(ownerKart) {
     const localTargets = karts
         .filter(k => k !== ownerKart && !k.isFinished)
         .map(k => ({ kind: 'local', kart: k }));
-    return localTargets.concat(Net.getRemoteProjectileTargets());
+    const remoteTargets = Net.getRemoteProjectileTargets().filter(target => {
+        if (!ownerKart || !ownerKart.ownerSocketId) return true;
+        return target.id !== ownerKart.ownerSocketId;
+    });
+    return localTargets.concat(remoteTargets);
 }
 
 function isProjectileTargetActive(target) {
@@ -1864,7 +1888,7 @@ function handleProjectileHit(projectile, target) {
     for(let i=0; i<15; i++) ParticleSys.spawn(hitPos, projectile.type === '🔴' ? 0xff0000 : 0x0000ff, 15);
 }
 
-function createProjectile(type, startPos, ownerKart, targetKart, fwdDir) {
+function createProjectile(type, startPos, ownerKart, targetKart, fwdDir, ownerSocketId = null) {
     const color = type === '🔴' ? 0xff0000 : 0x0000ff;
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.5, 12, 12), new THREE.MeshStandardMaterial({color: color, emissive: color, emissiveIntensity: 0.3}));
     mesh.position.copy(startPos);
@@ -1878,7 +1902,8 @@ function createProjectile(type, startPos, ownerKart, targetKart, fwdDir) {
         fwd: fwdDir,
         speed: type === '🔵' ? 50 : 35,
         active: true,
-        life: 8.0
+        life: 8.0,
+        ownerSocketId,
     });
 }
 
@@ -2166,6 +2191,25 @@ const Net = (() => {
         socket.on('hit_by_item', () => {
             safelyHitKart(playerKart, 'オンライン被弾');
         });
+        socket.on('item_placed', (data) => {
+            if (!data || !data.type) return;
+            if (data.ownerSocketId && socket && data.ownerSocketId === socket.id) return;
+            if (!data.position || typeof data.position.x !== 'number' || typeof data.position.y !== 'number' || typeof data.position.z !== 'number') return;
+
+            if (data.type === 'banana') {
+                const trapPos = new THREE.Vector3(data.position.x, data.position.y, data.position.z);
+                createTrap(trapPos, null);
+                return;
+            }
+
+            if (data.type === 'shell') {
+                const type = data.color === 'blue' ? '🔵' : data.color === 'red' ? '🔴' : null;
+                if (!type) return;
+                const startPos = new THREE.Vector3(data.position.x, data.position.y, data.position.z);
+                const target = data.targetSocketId ? getRemoteProjectileTargetById(data.targetSocketId) : null;
+                createProjectile(type, startPos, { ownerSocketId: data.ownerSocketId || null }, target, null, data.ownerSocketId || null);
+            }
+        });
         socket.on('lap_complete', ({ username, lap }) => {
             showLapToast(`${username} が Lap ${lap} を完了`);
         });
@@ -2226,6 +2270,17 @@ const Net = (() => {
             safeSceneRemove(rk.mesh);
         });
         remoteKarts.clear();
+    }
+    function getRemoteProjectileTargetById(id) {
+        const rk = remoteKarts.get(id);
+        if (!rk || !rk.initialized) return null;
+        return {
+            kind: 'remote',
+            id,
+            username: rk.username,
+            position: rk.current.pos,
+            mesh: rk.mesh,
+        };
     }
     function buildRemoteKartMesh(colorIdx) {
         const group = new THREE.Group();
@@ -2341,6 +2396,11 @@ const Net = (() => {
         if (!targetId) return;
         socket.emit('item_hit', { targetId, itemType });
     }
+    function notifyItemPlaced(payload) {
+        if (!isMultiplayer || !socket || !socket.connected) return;
+        if (!payload || !payload.type || !payload.position) return;
+        socket.emit('item_placed', payload);
+    }
 
     // --- ロビーへ遷移 ---
     function enterLobby() {
@@ -2382,6 +2442,7 @@ const Net = (() => {
         maybeSendKartUpdate,
         notifyLapComplete,
         notifyItemHit,
+        notifyItemPlaced,
         clearRemoteKarts,
         getRemoteKartIds,
         getMyUsername() { return myUsername; },

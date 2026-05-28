@@ -138,6 +138,7 @@ const MAX_PASSWORD_LENGTH = 128;
 const MAX_PLAYERS = 8;
 const MAX_LAPS = 99;
 const ROOM_ID_LENGTH = 6;
+const SHELL_COLORS = ['red', 'blue'];
 const ITEM_TYPES = ['shell', 'banana', 'mushroom', 'star', 'bomb'];
 const EMOJI_ITEM_TYPES = ['🍄', '🍌', '🔴', '🔵'];
 const VALID_ITEM_TYPES = ITEM_TYPES.concat(EMOJI_ITEM_TYPES);
@@ -483,6 +484,40 @@ io.on('connection', (socket) => {
       fromId: socket.id,
       itemType,
     });
+  });
+
+  // アイテム設置/発射同期
+  socket.on('item_placed', (payload = {}) => {
+    const roomId = playerRoom.get(socket.id);
+    if (!roomId) return;
+    const room = rooms.get(roomId);
+    if (!room || !room.players.has(socket.id)) return;
+
+    const { type, position, color, targetSocketId } = payload;
+    if (!isValidPosition(position)) return;
+
+    if (type === 'banana') {
+      io.to(roomId).emit('item_placed', {
+        type: 'banana',
+        position,
+        ownerSocketId: socket.id,
+      });
+      return;
+    }
+
+    if (type === 'shell') {
+      if (!SHELL_COLORS.includes(color)) return;
+      if (targetSocketId !== undefined && typeof targetSocketId !== 'string') return;
+      if (typeof targetSocketId === 'string' && playerRoom.get(targetSocketId) !== roomId) return;
+
+      io.to(roomId).emit('item_placed', {
+        type: 'shell',
+        color,
+        position,
+        targetSocketId: typeof targetSocketId === 'string' ? targetSocketId : null,
+        ownerSocketId: socket.id,
+      });
+    }
   });
 
   // ラップ完了
