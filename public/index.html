@@ -1953,7 +1953,7 @@ const Net = (() => {
         socket.on('collision', () => {
             // 相手から衝突通知を受けたら自カートのスピードを半減
             if (playerKart) {
-                playerKart.speed *= 0.5;
+                playerKart.speed *= COLLISION_SPEED_PENALTY;
             }
         });
         socket.on('disconnect', () => {
@@ -1965,8 +1965,9 @@ const Net = (() => {
     // --- リモートカート管理 ---
     // 衝突クールダウン (相手ID -> 最後に衝突した時刻ms)
     const collisionCooldowns = new Map();
-    const COLLISION_COOLDOWN_MS = 1000; // 1秒間は同一相手と再衝突しない
-    const COLLISION_DISTANCE = 3;       // 衝突とみなす距離 (unit)
+    const COLLISION_COOLDOWN_MS = 1000;  // 1秒間は同一相手と再衝突しない
+    const COLLISION_DISTANCE = 3;        // 衝突とみなす距離 (unit)
+    const COLLISION_SPEED_PENALTY = 0.5; // 衝突時のスピード乗数
 
     function ensureRemoteKart(id, username) {
         let rk = remoteKarts.get(id);
@@ -2041,6 +2042,7 @@ const Net = (() => {
     function tickRemoteKarts(dt) {
         if (remoteKarts.size === 0) return;
         const lerpFactor = Math.min(1, dt * 12); // 補間係数
+        const now = performance.now();
         remoteKarts.forEach((rk, id) => {
             rk.current.pos.lerp(rk.target.pos, lerpFactor);
             // 回転は最短経路で補間
@@ -2053,13 +2055,12 @@ const Net = (() => {
 
             // 自カートとの衝突判定
             if (isMultiplayer && socket && playerKart && rk.initialized) {
-                const now = performance.now();
                 const lastHit = collisionCooldowns.get(id) || 0;
                 if (now - lastHit >= COLLISION_COOLDOWN_MS) {
                     const dist = playerKart.mesh.position.distanceTo(rk.current.pos);
                     if (dist < COLLISION_DISTANCE) {
                         // 自カートのスピードを半減
-                        playerKart.speed *= 0.5;
+                        playerKart.speed *= COLLISION_SPEED_PENALTY;
                         collisionCooldowns.set(id, now);
                         // サーバー経由で相手にも衝突を通知
                         socket.emit('collision', { targetId: id });
