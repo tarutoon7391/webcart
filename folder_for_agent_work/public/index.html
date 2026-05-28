@@ -215,6 +215,80 @@
     <!-- Three.js & Cannon.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
+    <!-- Socket.io クライアント（同一オリジンから自動配信される） -->
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        /* オンライン用シーン共通スタイル */
+        .net-scene {
+            position: absolute; inset: 0;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            background: rgba(15, 23, 42, 0.92);
+            color: #fff; z-index: 60;
+            padding: 24px; gap: 18px;
+        }
+        .net-scene.hidden { display: none; }
+        .net-card {
+            background: rgba(0,0,0,0.45);
+            border: 2px solid #334155;
+            border-radius: 16px;
+            padding: 28px 32px;
+            width: min(100%, 420px);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        }
+        .net-card h2 { font-size: 1.8rem; font-weight: 900; margin-bottom: 18px; text-align: center; color: #fde047; text-shadow: 2px 2px 0 #b45309; }
+        .net-card label { display:block; font-size: 0.85rem; color:#cbd5e1; margin: 10px 0 4px; font-weight: 700; }
+        .net-card input {
+            width:100%; padding:10px 12px;
+            background:#0f172a; border:1px solid #475569; border-radius:8px;
+            color:#fff; font-size:1rem;
+        }
+        .net-card input:focus { outline:none; border-color:#38bdf8; box-shadow: 0 0 0 2px rgba(56,189,248,0.3); }
+        .net-btn {
+            display:inline-block; padding:10px 20px;
+            background: linear-gradient(180deg, #2563eb, #1d4ed8);
+            color:#fff; font-weight:900; border:none; border-radius:9999px;
+            cursor:pointer; font-size:1rem; box-shadow:0 4px 0 #1e3a8a;
+            transition: transform 0.1s, box-shadow 0.1s;
+        }
+        .net-btn:hover { background: linear-gradient(180deg, #3b82f6, #2563eb); }
+        .net-btn:active { transform: translateY(2px); box-shadow:0 2px 0 #1e3a8a; }
+        .net-btn.secondary { background: linear-gradient(180deg, #475569, #334155); box-shadow:0 4px 0 #1e293b; }
+        .net-btn.success { background: linear-gradient(180deg, #16a34a, #15803d); box-shadow:0 4px 0 #14532d; }
+        .net-btn.danger  { background: linear-gradient(180deg, #dc2626, #b91c1c); box-shadow:0 4px 0 #7f1d1d; }
+        .net-btn:disabled { opacity:0.5; cursor:not-allowed; }
+        .net-tabs { display:flex; gap:8px; margin-bottom:14px; }
+        .net-tabs button {
+            flex:1; padding:8px; border-radius:8px; border:1px solid #334155;
+            background:#0f172a; color:#cbd5e1; font-weight:700; cursor:pointer;
+        }
+        .net-tabs button.active { background:#2563eb; color:#fff; border-color:#1d4ed8; }
+        .net-error { color:#fca5a5; font-size:0.85rem; min-height: 1.1em; text-align:center; margin-top:6px; }
+        .net-info  { color:#7dd3fc; font-size:0.9rem; text-align:center; }
+        .player-list { list-style:none; padding:0; margin:0; }
+        .player-list li {
+            display:flex; justify-content:space-between; align-items:center;
+            padding:8px 12px; margin:4px 0;
+            background:#0f172a; border:1px solid #334155; border-radius:8px;
+        }
+        .player-list .host-badge {
+            background:#fde047; color:#78350f; padding:2px 8px; border-radius:9999px;
+            font-size:0.75rem; font-weight:900;
+        }
+        .room-id-display {
+            font-size:2.2rem; font-weight:900; color:#fde047;
+            text-align:center; letter-spacing:0.3em; margin:8px 0;
+            background:#0f172a; padding:10px; border-radius:10px; border:2px dashed #475569;
+        }
+        .course-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:10px; }
+        .course-grid .course-pick {
+            padding:14px 10px; border-radius:12px; border:3px solid #334155;
+            background:#0f172a; color:#fff; font-weight:900; cursor:pointer;
+            transition: transform 0.1s, border-color 0.1s;
+        }
+        .course-grid .course-pick.selected { border-color:#fde047; transform:scale(1.05); }
+        .course-grid .course-pick:disabled { cursor:not-allowed; opacity:0.7; }
+    </style>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #000; touch-action: none; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         #game-canvas { display: block; width: 100%; height: 100%; }
@@ -260,6 +334,89 @@
     </style>
 </head>
 <body>
+
+    <!-- ============================================================== -->
+    <!-- オンライン: 認証シーン (新規登録 / ログイン)                    -->
+    <!-- ============================================================== -->
+    <div id="scene-auth" class="net-scene">
+        <div class="net-card">
+            <h2>WebKart</h2>
+            <div class="net-tabs">
+                <button id="auth-tab-login" class="active">ログイン</button>
+                <button id="auth-tab-register">新規登録</button>
+            </div>
+            <label for="auth-username">プレイヤー名</label>
+            <input id="auth-username" type="text" autocomplete="username" maxlength="50" placeholder="例: kart_player" />
+            <label for="auth-password">パスワード</label>
+            <input id="auth-password" type="password" autocomplete="current-password" maxlength="128" placeholder="4文字以上" />
+            <div id="auth-error" class="net-error"></div>
+            <div style="display:flex; justify-content:center; margin-top:14px;">
+                <button id="auth-submit" class="net-btn success">ログイン</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- オンライン: ロビーシーン                                        -->
+    <!-- ============================================================== -->
+    <div id="scene-lobby" class="net-scene hidden">
+        <div class="net-card">
+            <h2>ロビー</h2>
+            <div class="net-info">こんにちは、<span id="lobby-username">プレイヤー</span> さん</div>
+            <div style="display:flex; flex-direction:column; gap:14px; margin-top:18px;">
+                <button id="lobby-create" class="net-btn success">ルームを作成</button>
+                <div>
+                    <label for="lobby-room-id">ルームIDを入力して入室</label>
+                    <input id="lobby-room-id" type="text" maxlength="16" placeholder="例: A1B2C3" style="text-transform:uppercase; letter-spacing:0.2em; text-align:center;" />
+                    <div style="display:flex; justify-content:center; margin-top:10px;">
+                        <button id="lobby-join" class="net-btn">入室</button>
+                    </div>
+                </div>
+                <hr style="border-color:#334155;" />
+                <button id="lobby-single" class="net-btn secondary">シングルプレイ</button>
+                <button id="lobby-logout" class="net-btn danger">ログアウト</button>
+                <div id="lobby-error" class="net-error"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- オンライン: ルームメンバーシーン                                -->
+    <!-- ============================================================== -->
+    <div id="scene-room" class="net-scene hidden">
+        <div class="net-card">
+            <h2>ルーム待機中</h2>
+            <div class="net-info">ルームID</div>
+            <div id="room-id-display" class="room-id-display">------</div>
+            <div class="net-info">メンバー一覧 (<span id="room-player-count">0</span>/8)</div>
+            <ul id="room-player-list" class="player-list"></ul>
+            <div id="room-error" class="net-error"></div>
+            <div style="display:flex; gap:10px; justify-content:center; margin-top:10px; flex-wrap:wrap;">
+                <button id="room-confirm" class="net-btn success hidden">メンバー決定</button>
+                <button id="room-leave" class="net-btn danger">ルームを退出</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- オンライン: ステージ選択シーン                                  -->
+    <!-- ============================================================== -->
+    <div id="scene-course" class="net-scene hidden">
+        <div class="net-card">
+            <h2>コース選択</h2>
+            <div id="course-host-info" class="net-info">ホストの選択を待っています...</div>
+            <div class="course-grid" style="margin-top:14px;">
+                <button class="course-pick" data-course="mario_circuit">🌿 マリオサーキット</button>
+                <button class="course-pick" data-course="desert">🏜️ サンドデザート</button>
+                <button class="course-pick" data-course="night">🌙 ナイトシティ</button>
+            </div>
+            <div id="course-error" class="net-error"></div>
+            <div style="display:flex; gap:10px; justify-content:center; margin-top:14px;">
+                <button id="course-start" class="net-btn success hidden">レース開始！</button>
+                <button id="course-back" class="net-btn secondary">ルームに戻る</button>
+            </div>
+        </div>
+    </div>
 
 <div id="app" class="relative w-full h-full">
     <!-- WebGL Canvas -->
@@ -1362,6 +1519,8 @@ class Kart {
                 }
                 this.lap++;
                 this.checkpoints = [false, false, false];
+                // ★ オンライン: 自カートのラップ完了をブロードキャスト
+                if (this.isPlayer) Net.notifyLapComplete(this.lap - 1);
                 
                 if (this.lap > LAPS && !this.isFinished) {
                     this.isFinished = true;
@@ -1550,6 +1709,427 @@ function updateProjectiles(dt) {
 // ==========================================
 // 7. Initialization & Game Loop
 // ==========================================
+// ==========================================
+// ★ オンラインマルチプレイ用ネットワークモジュール
+// ==========================================
+const Net = (() => {
+    let socket = null;
+    let currentRoom = null; // { roomId, hostId, players, courseId, status }
+    let myUsername = null;
+    let isMultiplayer = false;
+
+    // 受信用リモートカート: socketId -> { mesh, target: {pos, rot}, current: {pos, rot}, username }
+    const remoteKarts = new Map();
+    let lastKartUpdateSent = 0;
+    const KART_UPDATE_INTERVAL_MS = 60;
+
+    // --- DOM ヘルパ ---
+    const $ = (id) => document.getElementById(id);
+    const sceneIds = ['scene-auth', 'scene-lobby', 'scene-room', 'scene-course'];
+    function showNetScene(id) {
+        sceneIds.forEach(s => {
+            const el = $(s);
+            if (!el) return;
+            if (s === id) el.classList.remove('hidden');
+            else el.classList.add('hidden');
+        });
+    }
+    function hideAllNetScenes() {
+        sceneIds.forEach(s => { const el = $(s); if (el) el.classList.add('hidden'); });
+    }
+    function setText(id, text) { const el = $(id); if (el) el.textContent = text; }
+
+    // --- 認証画面 ---
+    let authMode = 'login';
+    function setupAuth() {
+        const tabLogin = $('auth-tab-login');
+        const tabRegister = $('auth-tab-register');
+        const submit = $('auth-submit');
+        const errorEl = $('auth-error');
+
+        function switchMode(mode) {
+            authMode = mode;
+            tabLogin.classList.toggle('active', mode === 'login');
+            tabRegister.classList.toggle('active', mode === 'register');
+            submit.textContent = mode === 'login' ? 'ログイン' : '登録してログイン';
+            errorEl.textContent = '';
+        }
+        tabLogin.addEventListener('click', () => switchMode('login'));
+        tabRegister.addEventListener('click', () => switchMode('register'));
+
+        async function submitAuth() {
+            errorEl.textContent = '';
+            const username = $('auth-username').value.trim();
+            const password = $('auth-password').value;
+            if (!username || !password) {
+                errorEl.textContent = 'ユーザー名とパスワードを入力してください';
+                return;
+            }
+            submit.disabled = true;
+            try {
+                const endpoint = authMode === 'login' ? '/api/login' : '/api/register';
+                const res = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    errorEl.textContent = data.error || '失敗しました';
+                    return;
+                }
+                myUsername = data.username || username;
+                enterLobby();
+            } catch (e) {
+                errorEl.textContent = '通信エラーが発生しました';
+            } finally {
+                submit.disabled = false;
+            }
+        }
+        submit.addEventListener('click', submitAuth);
+        $('auth-password').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') submitAuth();
+        });
+    }
+
+    // --- ロビー画面 ---
+    function setupLobby() {
+        $('lobby-create').addEventListener('click', () => {
+            ensureSocket();
+            $('lobby-error').textContent = '';
+            socket.emit('create_room', {}, (resp) => {
+                if (!resp || resp.error) {
+                    $('lobby-error').textContent = (resp && resp.error) || 'ルーム作成に失敗しました';
+                    return;
+                }
+                currentRoom = resp.room;
+                renderRoom();
+                showNetScene('scene-room');
+            });
+        });
+        $('lobby-join').addEventListener('click', () => {
+            ensureSocket();
+            const roomId = $('lobby-room-id').value.trim().toUpperCase();
+            $('lobby-error').textContent = '';
+            if (!roomId) {
+                $('lobby-error').textContent = 'ルームIDを入力してください';
+                return;
+            }
+            socket.emit('join_room', { roomId }, (resp) => {
+                if (!resp || resp.error) {
+                    $('lobby-error').textContent = (resp && resp.error) || 'ルーム入室に失敗しました';
+                    return;
+                }
+                currentRoom = resp.room;
+                renderRoom();
+                showNetScene('scene-room');
+            });
+        });
+        $('lobby-single').addEventListener('click', () => {
+            // シングルプレイへ
+            isMultiplayer = false;
+            hideAllNetScenes();
+            // 既存のタイトル画面 (scene-title) を表示し、ユーザーが RACE START を押せるようにする
+            document.getElementById('scene-title').classList.remove('hidden');
+            gameState = 'TITLE';
+        });
+        $('lobby-logout').addEventListener('click', async () => {
+            try { await fetch('/api/logout', { method: 'POST' }); } catch (e) { /* noop */ }
+            myUsername = null;
+            if (socket) { socket.disconnect(); socket = null; }
+            showNetScene('scene-auth');
+        });
+    }
+
+    // --- ルーム画面 ---
+    function setupRoom() {
+        $('room-leave').addEventListener('click', () => {
+            if (socket) socket.emit('leave_room');
+            currentRoom = null;
+            showNetScene('scene-lobby');
+        });
+        $('room-confirm').addEventListener('click', () => {
+            // ホストのみ押せる: コース選択画面へ
+            if (!currentRoom || currentRoom.hostId !== socket.id) return;
+            showNetScene('scene-course');
+            renderCourseScene();
+        });
+    }
+
+    function renderRoom() {
+        if (!currentRoom) return;
+        $('room-id-display').textContent = currentRoom.roomId;
+        const list = $('room-player-list');
+        list.innerHTML = '';
+        currentRoom.players.forEach((p) => {
+            const li = document.createElement('li');
+            li.innerHTML = `<span>${escapeHtml(p.username)}</span>` +
+                (p.isHost ? '<span class="host-badge">ホスト</span>' : '');
+            list.appendChild(li);
+        });
+        $('room-player-count').textContent = String(currentRoom.players.length);
+        // ホストのみ「メンバー決定」表示
+        const isHost = socket && currentRoom.hostId === socket.id;
+        $('room-confirm').classList.toggle('hidden', !isHost);
+    }
+
+    // --- コース選択画面 ---
+    let selectedNetCourse = 'mario_circuit';
+    function setupCourse() {
+        document.querySelectorAll('#scene-course .course-pick').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (!currentRoom || currentRoom.hostId !== socket.id) return;
+                selectedNetCourse = btn.dataset.course;
+                renderCourseScene();
+            });
+        });
+        $('course-start').addEventListener('click', () => {
+            if (!currentRoom || currentRoom.hostId !== socket.id) return;
+            socket.emit('start_race', { courseId: selectedNetCourse });
+        });
+        $('course-back').addEventListener('click', () => {
+            showNetScene('scene-room');
+        });
+    }
+
+    function renderCourseScene() {
+        const isHost = currentRoom && socket && currentRoom.hostId === socket.id;
+        document.querySelectorAll('#scene-course .course-pick').forEach(btn => {
+            btn.disabled = !isHost;
+            btn.classList.toggle('selected', btn.dataset.course === selectedNetCourse);
+        });
+        $('course-host-info').textContent = isHost
+            ? 'ホストです。コースを選択して開始してください。'
+            : 'ホストの選択を待っています...';
+        $('course-start').classList.toggle('hidden', !isHost);
+    }
+
+    // --- Socket 接続 ---
+    function ensureSocket() {
+        if (socket && socket.connected) return socket;
+        if (!socket) {
+            socket = io({ withCredentials: true });
+            bindSocketEvents();
+        }
+        return socket;
+    }
+    function bindSocketEvents() {
+        socket.on('room_update', (room) => {
+            currentRoom = room;
+            renderRoom();
+            renderCourseScene();
+        });
+        socket.on('room_closed', () => {
+            currentRoom = null;
+            clearRemoteKarts();
+            isMultiplayer = false;
+            // タイトル/ロビーへ戻す
+            if (gameState === 'RACE' || gameState === 'COUNTDOWN' || gameState === 'FINISH') {
+                resetGame();
+            }
+            showNetScene('scene-lobby');
+            $('lobby-error').textContent = 'ホストが退室したためルームを解散しました';
+        });
+        socket.on('start_race', ({ courseId }) => {
+            if (!COURSE_DATA[courseId]) return;
+            selectedCourse = courseId;
+            isMultiplayer = true;
+            clearRemoteKarts();
+            hideAllNetScenes();
+            document.getElementById('scene-title').classList.add('hidden');
+            startSequence();
+        });
+        socket.on('kart_update', (data) => {
+            updateRemoteKart(data);
+        });
+        socket.on('hit_by_item', () => {
+            if (playerKart && typeof playerKart.hitShell === 'function') {
+                playerKart.hitShell();
+            }
+        });
+        socket.on('lap_complete', ({ username, lap }) => {
+            showLapToast(`${username} が Lap ${lap} を完了`);
+        });
+        socket.on('disconnect', () => {
+            // ソケット切断時はリモートカートをクリア
+            clearRemoteKarts();
+        });
+    }
+
+    // --- リモートカート管理 ---
+    function ensureRemoteKart(id, username) {
+        let rk = remoteKarts.get(id);
+        if (rk) return rk;
+        const mesh = buildRemoteKartMesh(remoteKarts.size + 1);
+        scene.add(mesh);
+        // 名前ラベル
+        rk = {
+            mesh,
+            username: username || '',
+            current: { pos: new THREE.Vector3(), rot: 0 },
+            target:  { pos: new THREE.Vector3(), rot: 0 },
+            initialized: false,
+        };
+        remoteKarts.set(id, rk);
+        return rk;
+    }
+    function updateRemoteKart(data) {
+        if (!scene || !data || !data.position) return;
+        const rk = ensureRemoteKart(data.id, data.username);
+        rk.username = data.username || rk.username;
+        rk.target.pos.set(data.position.x, data.position.y, data.position.z);
+        rk.target.rot = data.rotation;
+        if (!rk.initialized) {
+            rk.current.pos.copy(rk.target.pos);
+            rk.current.rot = rk.target.rot;
+            rk.initialized = true;
+        }
+    }
+    function clearRemoteKarts() {
+        remoteKarts.forEach(rk => { if (scene) scene.remove(rk.mesh); });
+        remoteKarts.clear();
+    }
+    function buildRemoteKartMesh(colorIdx) {
+        const group = new THREE.Group();
+        const color = KART_COLORS[colorIdx % KART_COLORS.length];
+        const matBody = new THREE.MeshStandardMaterial({ color });
+        const matDark = new THREE.MeshStandardMaterial({ color: 0x333333 });
+        const chassis = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.2, 2.2), matDark);
+        chassis.position.y = 0.3; group.add(chassis);
+        const body = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.4, 1.4), matBody);
+        body.position.set(0, 0.5, -0.1); group.add(body);
+        const nose = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.2, 0.6), matBody);
+        nose.position.set(0, 0.45, 0.8); group.add(nose);
+        // 簡易タイヤ
+        const wheelGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.25, 12); wheelGeo.rotateZ(Math.PI/2);
+        const matWheel = new THREE.MeshStandardMaterial({ color: 0x111111 });
+        [[0.7, 0.35, 0.8], [-0.7, 0.35, 0.8], [0.7, 0.35, -0.8], [-0.7, 0.35, -0.8]].forEach(p => {
+            const w = new THREE.Mesh(wheelGeo, matWheel); w.position.set(p[0], p[1], p[2]); group.add(w);
+        });
+        return group;
+    }
+    function tickRemoteKarts(dt) {
+        if (remoteKarts.size === 0) return;
+        const lerpFactor = Math.min(1, dt * 12); // 補間係数
+        remoteKarts.forEach((rk) => {
+            rk.current.pos.lerp(rk.target.pos, lerpFactor);
+            // 回転は最短経路で補間
+            let diff = rk.target.rot - rk.current.rot;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            rk.current.rot += diff * lerpFactor;
+            rk.mesh.position.copy(rk.current.pos);
+            rk.mesh.rotation.y = rk.current.rot;
+        });
+    }
+
+    // --- ラップ通知トースト ---
+    let lapToastEl = null;
+    function showLapToast(message) {
+        if (!lapToastEl) {
+            lapToastEl = document.createElement('div');
+            lapToastEl.style.cssText =
+                'position:absolute;top:80px;left:50%;transform:translateX(-50%);' +
+                'background:rgba(0,0,0,0.7);color:#fde047;padding:8px 16px;border-radius:8px;' +
+                'font-weight:900;z-index:45;pointer-events:none;font-size:1rem;' +
+                'transition:opacity 0.3s;';
+            document.body.appendChild(lapToastEl);
+        }
+        lapToastEl.textContent = message;
+        lapToastEl.style.opacity = '1';
+        clearTimeout(lapToastEl._timer);
+        lapToastEl._timer = setTimeout(() => { lapToastEl.style.opacity = '0'; }, 2500);
+    }
+
+    // --- カート位置送信（animate から呼ばれる） ---
+    function maybeSendKartUpdate() {
+        if (!isMultiplayer || !socket || !socket.connected || !playerKart) return;
+        const now = performance.now();
+        if (now - lastKartUpdateSent < KART_UPDATE_INTERVAL_MS) return;
+        lastKartUpdateSent = now;
+        const pos = playerKart.mesh.position;
+        socket.emit('kart_update', {
+            position: { x: pos.x, y: pos.y, z: pos.z },
+            rotation: playerKart.rotationY,
+            speed: playerKart.speed,
+        });
+    }
+
+    function notifyLapComplete(lap) {
+        if (!isMultiplayer || !socket || !socket.connected) return;
+        socket.emit('lap_complete', { lap });
+    }
+
+    function getRemoteKartIds() {
+        return Array.from(remoteKarts.keys());
+    }
+    function notifyItemHit(targetId, itemType) {
+        if (!isMultiplayer || !socket || !socket.connected) return;
+        if (!targetId) return;
+        socket.emit('item_hit', { targetId, itemType });
+    }
+
+    // --- ロビーへ遷移 ---
+    function enterLobby() {
+        setText('lobby-username', myUsername || 'プレイヤー');
+        ensureSocket();
+        showNetScene('scene-lobby');
+    }
+
+    // --- 起動 ---
+    async function start() {
+        setupAuth();
+        setupLobby();
+        setupRoom();
+        setupCourse();
+        // 既ログイン確認
+        try {
+            const res = await fetch('/api/me');
+            const data = await res.json();
+            if (data.loggedIn) {
+                myUsername = data.username;
+                enterLobby();
+                return;
+            }
+        } catch (e) { /* noop */ }
+        showNetScene('scene-auth');
+    }
+
+    function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, c => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[c]));
+    }
+
+    return {
+        start,
+        get isMultiplayer() { return isMultiplayer; },
+        setMultiplayer(v) { isMultiplayer = v; },
+        tickRemoteKarts,
+        maybeSendKartUpdate,
+        notifyLapComplete,
+        notifyItemHit,
+        clearRemoteKarts,
+        getRemoteKartIds,
+        returnToLobby() {
+            isMultiplayer = false;
+            clearRemoteKarts();
+            showNetScene('scene-lobby');
+        },
+        returnToRoom() {
+            if (currentRoom) {
+                isMultiplayer = false;
+                clearRemoteKarts();
+                renderRoom();
+                showNetScene('scene-room');
+            } else {
+                this.returnToLobby();
+            }
+        },
+        hasRoom() { return !!currentRoom; },
+    };
+})();
+
 function init() {
     const canvas = document.getElementById('game-canvas');
     renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -1616,6 +2196,9 @@ function init() {
     // Mobile touch controls setup
     initTouchControls();
     
+    // ★ オンライン機能を起動（認証画面/ロビー）
+    Net.start();
+
     renderer.setAnimationLoop(animate);
 }
 
@@ -1691,7 +2274,9 @@ function startSequence() {
     itemBoxes = [];
     createTrack(COURSE_DATA[selectedCourse]);
     karts = []; finishedCount = 0;
-    for(let i=0; i<8; i++) karts.push(new Kart(i === 0, i));
+    // ★ マルチプレイ時は自分のカートだけ生成（他プレイヤーはネットワーク同期のゴーストで表示）
+    const localKartCount = Net.isMultiplayer ? 1 : 8;
+    for(let i=0; i<localKartCount; i++) karts.push(new Kart(i === 0, i));
     playerKart = karts[0];
     
     AudioSys.startBGM();
@@ -1764,10 +2349,21 @@ function resetGame() {
     
     document.getElementById('scene-result').classList.add('hidden');
     document.getElementById('scene-pause').style.display = 'none';
-    document.getElementById('scene-title').classList.remove('hidden');
-    document.getElementById('scene-race').classList.add('hidden');
     showTouchControls(false);
     gameState = 'TITLE'; isPaused = false;
+
+    // ★ マルチプレイの場合はタイトルに戻らずルーム画面へ戻す
+    if (Net.isMultiplayer || Net.hasRoom()) {
+        Net.clearRemoteKarts();
+        document.getElementById('scene-title').classList.add('hidden');
+        document.getElementById('scene-race').classList.add('hidden');
+        Net.returnToRoom();
+        // タイトルプレビューは作らない（コース選択をホストがやり直すため）
+        return;
+    }
+
+    document.getElementById('scene-title').classList.remove('hidden');
+    document.getElementById('scene-race').classList.add('hidden');
 
     // タイトル画面に戻るときプレビューを再生成
     createTitlePreview(COURSE_DATA[selectedCourse]);
@@ -1985,6 +2581,10 @@ function animate() {
         });
         
         updateCamera(); updateHUD();
+
+        // ★ オンライン同期: 自カートの位置を送信 & リモートカートを補間
+        Net.maybeSendKartUpdate();
+        Net.tickRemoteKarts(dt);
     } else if (gameState === 'FINISH' && !isPaused) {
         // ④ FINISH 中: 物理演算は止めるがカメラ・パーティクルは継続
         ParticleSys.update(dt);
