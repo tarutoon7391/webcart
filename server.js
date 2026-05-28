@@ -457,6 +457,18 @@ io.on('connection', (socket) => {
     });
   });
 
+  // カート衝突通知
+  socket.on('collision', (payload = {}) => {
+    const { targetId } = payload;
+    if (typeof targetId !== 'string') return;
+    const roomId = playerRoom.get(socket.id);
+    if (!roomId) return;
+    // 送信者と対象が同じルームにいることを確認
+    if (playerRoom.get(targetId) !== roomId) return;
+    // 対象プレイヤーに衝突を通知
+    io.to(targetId).emit('collision');
+  });
+
   // アイテムヒット
   socket.on('item_hit', (payload = {}) => {
     const { targetId, itemType } = payload;

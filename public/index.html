@@ -1950,6 +1950,12 @@ const Net = (() => {
         socket.on('lap_complete', ({ username, lap }) => {
             showLapToast(`${username} が Lap ${lap} を完了`);
         });
+        socket.on('collision', () => {
+            // 相手から衝突通知を受けたら自カートのスピードを半減
+            if (playerKart) {
+                playerKart.speed *= 0.5;
+            }
+        });
         socket.on('disconnect', () => {
             // ソケット切断時はリモートカートをクリア
             clearRemoteKarts();
@@ -1957,6 +1963,11 @@ const Net = (() => {
     }
 
     // --- リモートカート管理 ---
+    // 衝突クールダウン (相手ID -> 最後に衝突した時刻ms)
+    const collisionCooldowns = new Map();
+    const COLLISION_COOLDOWN_MS = 1000; // 1秒間は同一相手と再衝突しない
+    const COLLISION_DISTANCE = 3;       // 衝突とみなす距離 (unit)
+
     function ensureRemoteKart(id, username) {
         let rk = remoteKarts.get(id);
         if (rk) return rk;
@@ -2006,12 +2017,31 @@ const Net = (() => {
         [[0.7, 0.35, 0.8], [-0.7, 0.35, 0.8], [0.7, 0.35, -0.8], [-0.7, 0.35, -0.8]].forEach(p => {
             const w = new THREE.Mesh(wheelGeo, matWheel); w.position.set(p[0], p[1], p[2]); group.add(w);
         });
+        // ドライバーキャラ追加
+        const skinColors = [0xffccaa, 0xffddbb, 0xeebb99, 0xddaa88];
+        const matSkin = new THREE.MeshStandardMaterial({ color: skinColors[colorIdx % 4] });
+        const driver = new THREE.Group();
+        driver.position.set(0, 0.8, -0.1);
+        const torso = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.5, 0.4), matBody);
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.35, 16, 16), matSkin); head.position.y = 0.5;
+        const driverNose = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), matSkin); driverNose.position.set(0, 0.5, 0.32);
+        const matEye = new THREE.MeshStandardMaterial({ color: 0x000000 });
+        const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), matEye); eyeR.position.set(0.12, 0.6, 0.28);
+        const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), matEye); eyeL.position.set(-0.12, 0.6, 0.28);
+        const mustache = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.08, 0.05), new THREE.MeshStandardMaterial({ color: 0x222222 }));
+        mustache.position.set(0, 0.4, 0.35);
+        const hat1 = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.15, 16), matBody); hat1.position.y = 0.8;
+        const hat2 = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.05, 16), matBody); hat2.position.set(0, 0.72, 0.1);
+        driver.add(torso); driver.add(head); driver.add(driverNose);
+        driver.add(eyeR); driver.add(eyeL); driver.add(mustache);
+        driver.add(hat1); driver.add(hat2);
+        group.add(driver);
         return group;
     }
     function tickRemoteKarts(dt) {
         if (remoteKarts.size === 0) return;
         const lerpFactor = Math.min(1, dt * 12); // 補間係数
-        remoteKarts.forEach((rk) => {
+        remoteKarts.forEach((rk, id) => {
             rk.current.pos.lerp(rk.target.pos, lerpFactor);
             // 回転は最短経路で補間
             let diff = rk.target.rot - rk.current.rot;
@@ -2020,6 +2050,22 @@ const Net = (() => {
             rk.current.rot += diff * lerpFactor;
             rk.mesh.position.copy(rk.current.pos);
             rk.mesh.rotation.y = rk.current.rot;
+
+            // 自カートとの衝突判定
+            if (isMultiplayer && socket && playerKart && rk.initialized) {
+                const now = performance.now();
+                const lastHit = collisionCooldowns.get(id) || 0;
+                if (now - lastHit >= COLLISION_COOLDOWN_MS) {
+                    const dist = playerKart.mesh.position.distanceTo(rk.current.pos);
+                    if (dist < COLLISION_DISTANCE) {
+                        // 自カートのスピードを半減
+                        playerKart.speed *= 0.5;
+                        collisionCooldowns.set(id, now);
+                        // サーバー経由で相手にも衝突を通知
+                        socket.emit('collision', { targetId: id });
+                    }
+                }
+            }
         });
     }
 
