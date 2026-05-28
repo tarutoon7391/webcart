@@ -1699,13 +1699,13 @@ class Kart {
                 let target = karts.find(k => k.rank === this.rank - 1 && !k.isFinished);
                 if (target === this) target = null;
                 const startPos = new THREE.Vector3(pos.x + fwdDir.x * 2, pos.y, pos.z + fwdDir.z * 2);
-                createProjectile('🔴', startPos, this, target || pickProjectileTarget('🔴', this, startPos, fwdDir), fwdDir);
+                createProjectile('🔴', startPos, this, target ?? pickProjectileTarget('🔴', this, startPos, fwdDir), fwdDir);
             } else if (itemToUse === '🔵') {
                 let target = karts.find(k => k.rank === 1 && !k.isFinished);
                 if (target === this) target = karts.find(k => k.rank === 2 && !k.isFinished);
                 if (target === this) target = null;
                 const startPos = new THREE.Vector3(pos.x + fwdDir.x * 2, pos.y + 2, pos.z + fwdDir.z * 2);
-                createProjectile('🔵', startPos, this, target || pickProjectileTarget('🔵', this, startPos, fwdDir), fwdDir);
+                createProjectile('🔵', startPos, this, target ?? pickProjectileTarget('🔵', this, startPos, fwdDir), fwdDir);
             }
             this.item = null;
             if (this.isPlayer) updateHUDItem('');
@@ -1773,6 +1773,7 @@ class Kart {
 // 罠（バナナ）と甲羅の生成・更新
 const PROJECTILE_HIT_DISTANCE = 2.5;
 const PROJECTILE_HIT_DISTANCE_SQ = PROJECTILE_HIT_DISTANCE * PROJECTILE_HIT_DISTANCE;
+const MIN_PROJECTILE_TRACKING_DISTANCE = 0.001;
 
 function createTrap(pos, ownerKart) {
     const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.2, 8), new THREE.MeshStandardMaterial({color: 0xffff00}));
@@ -1910,7 +1911,7 @@ function updateProjectiles(dt) {
                 const dx = targetPos.x - p.mesh.position.x;
                 const dz = targetPos.z - p.mesh.position.z;
                 const dist = Math.sqrt(dx * dx + dz * dz);
-                if (dist > 0.001) {
+                if (dist > MIN_PROJECTILE_TRACKING_DISTANCE) {
                     p.mesh.position.x += (dx / dist) * p.speed * dt;
                     p.mesh.position.z += (dz / dist) * p.speed * dt;
                 }
