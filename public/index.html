@@ -1330,7 +1330,7 @@ class Kart {
         this.isDrifting = false; this.driftDirection = 0; this.driftGauge = 0;
         this.isSlipstreaming = false; // D. 未初期化だったプロパティを明示的に初期化
         this.item = null; this.isItemRolling = false;
-        this.boostTimer = 0; this.spinTimer = 0; this.prevSpace = false;
+        this.boostTimer = 0; this.hitTimer = 0; this.prevSpace = false;
     }
 
     buildKartModel() {
@@ -1425,11 +1425,10 @@ class Kart {
             return;
         }
 
-        if (this.spinTimer > 0) {
-            this.spinTimer -= dt;
-            this.mesh.rotation.y += dt * 20; 
-            this.speed *= 0.95;
-            // スピン中も進捗・順位を更新し続ける
+        if (this.hitTimer > 0) {
+            this.hitTimer -= dt;
+            this.speed *= 0.05;
+            // ヒット中も進捗・順位を更新し続ける
             let minDistSq = Infinity;
             let bestT = this.progressT;
             const searchRange = 30;
@@ -1703,8 +1702,8 @@ class Kart {
     }
 
     hitShell() {
-        if(this.spinTimer > 0 || this.isFinished) return;
-        this.spinTimer = 1.5; this.speed = 0;
+        if(this.hitTimer > 0 || this.isFinished) return;
+        this.hitTimer = 1.0; this.speed = 0;
         this.isDrifting = false; this.driftGauge = 0;
         if (this.isPlayer) { AudioSys.seCrash(); cameraShakeTimer = 0.5; }
     }
@@ -1716,7 +1715,7 @@ class Kart {
         this.body.position.set(pt.x, 2, pt.z);
         this.body.velocity.set(0, 0, 0);
         this.speed = 0;
-        this.spinTimer = 1.0;
+        this.hitTimer = 1.0;
         this.isDrifting = false; this.driftGauge = 0;
         if (this.isPlayer) {
             AudioSys.seCrash(); cameraShakeTimer = 0.4;
@@ -2600,7 +2599,7 @@ function startSequence() {
                     AudioSys.playTone(1200, 'sine', 0.5, 0.2);
                     for(let i=0; i<30; i++) ParticleSys.spawn(playerKart.mesh.position, 0xff5500, 20);
                 } else if (pressDuration > 1500) {
-                    playerKart.spinTimer = 1.5; // エンスト
+                    playerKart.hitTimer = 1.0; // エンスト
                     AudioSys.seCrash();
                     for(let i=0; i<15; i++) ParticleSys.spawn(playerKart.mesh.position, 0x333333, 10);
                 }
