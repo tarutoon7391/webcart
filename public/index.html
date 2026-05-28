@@ -2735,7 +2735,7 @@ function endRace() {
     }, 2500);
 }
 
-function updateCamera() {
+function updateCamera(dt) {
     if(!playerKart) return;
     const lookBack = keys['KeyR'];
     const zSign = lookBack ? 1 : -1;
@@ -2873,7 +2873,7 @@ function animate() {
             k.rank = idx + 1; 
         });
         
-        updateCamera(); updateHUD();
+        updateCamera(dt); updateHUD();
 
         // ★ オンライン同期: 自カートの位置を送信 & リモートカートを補間
         Net.maybeSendKartUpdate();
@@ -2881,7 +2881,7 @@ function animate() {
     } else if (gameState === 'FINISH' && !isPaused) {
         // ④ FINISH 中: 物理演算は止めるがカメラ・パーティクルは継続
         ParticleSys.update(dt);
-        updateCamera();
+        updateCamera(dt);
     } else if (gameState === 'TITLE') {
         // タイトルプレビュー: コース中心の上空をゆっくり周回
         titleCameraAngle += rawDt * 0.18; // 周回速度
