@@ -1,6 +1,7 @@
 const express = require('express');
 const http = require('http');
 const path = require('path');
+const crypto = require('crypto');
 const { Server } = require('socket.io');
 const { Pool } = require('pg');
 const bcrypt = require('bcrypt');
@@ -11,7 +12,14 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 const PORT = process.env.PORT || 3000;
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'webkart-dev-secret-change-me';
+if (IS_PRODUCTION && SESSION_SECRET === 'webkart-dev-secret-change-me') {
+  console.warn(
+    '[WebKart] 警告: 本番環境ですが SESSION_SECRET が未設定です。' +
+    '必ず環境変数 SESSION_SECRET にランダムな文字列を設定してください。'
+  );
+}
 const BCRYPT_ROUNDS = 10;
 
 // ===========================================================================
@@ -56,10 +64,59 @@ const sessionMiddleware = session({
   cookie: {
     httpOnly: true,
     sameSite: 'lax',
+    secure: IS_PRODUCTION, // 本番環境では HTTPS のみで送信
     maxAge: 1000 * 60 * 60 * 24, // 24時間
   },
 });
 app.use(sessionMiddleware);
+
+// --- 軽量な CSRF 対策: 状態変更系 API は同一オリジンからの POST のみ許可 ---
+// SameSite=Lax と組み合わせて多くのクロスサイト攻撃をブロックする。
+app.use((req, res, next) => {
+  if (req.method === 'POST' && req.path.startsWith('/api/')) {
+    const origin = req.get('origin') || req.get('referer') || '';
+    if (origin) {
+      const hostHeader = req.get('host');
+      try {
+        const url = new URL(origin);
+        if (url.host !== hostHeader) {
+          return res.status(403).json({ error: 'クロスサイトリクエストは拒否されました' });
+        }
+      } catch (e) {
+        return res.status(403).json({ error: 'リクエスト元の検証に失敗しました' });
+      }
+    }
+  }
+  next();
+});
+
+// --- 簡易レートリミッタ: 認証エンドポイントのブルートフォース対策 ---
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT_MAX = 20;
+const rateLimitBuckets = new Map(); // ip -> { count, windowStart }
+function rateLimit(req, res, next) {
+  const ip = req.ip || (req.connection && req.connection.remoteAddress) || 'unknown';
+  const now = Date.now();
+  let bucket = rateLimitBuckets.get(ip);
+  if (!bucket || now - bucket.windowStart > RATE_LIMIT_WINDOW_MS) {
+    bucket = { count: 0, windowStart: now };
+    rateLimitBuckets.set(ip, bucket);
+  }
+  bucket.count++;
+  if (bucket.count > RATE_LIMIT_MAX) {
+    return res.status(429).json({ error: 'リクエストが多すぎます。しばらくしてから再度お試しください' });
+  }
+  next();
+}
+// バケツの肥大化を防ぐため定期的にクリーンアップ
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, bucket] of rateLimitBuckets) {
+    if (now - bucket.windowStart > RATE_LIMIT_WINDOW_MS * 2) {
+      rateLimitBuckets.delete(ip);
+    }
+  }
+}, RATE_LIMIT_WINDOW_MS).unref();
 
 // public/ ディレクトリを静的配信
 app.use(express.static(path.join(__dirname, 'public')));
@@ -84,7 +141,8 @@ function isValidUsername(value) {
     typeof value === 'string' &&
     value.length > 0 &&
     value.length <= MAX_USERNAME_LENGTH &&
-    /^[\w\-ぁ-んァ-ヶ一-龠a-zA-Z0-9]+$/u.test(value)
+    // \w (a-zA-Z0-9_) と日本語(ひらがな/カタカナ/漢字)のみ許可
+    /^[\w\-ぁ-んァ-ヶ一-龠]+$/u.test(value)
   );
 }
 
@@ -113,7 +171,7 @@ function isValidNumber(val) {
 // ===========================================================================
 // 認証 API
 // ===========================================================================
-app.post('/api/register', async (req, res) => {
+app.post('/api/register', rateLimit, async (req, res) => {
   try {
     const { username, password } = req.body || {};
     if (!isValidUsername(username)) {
@@ -144,7 +202,7 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', rateLimit, async (req, res) => {
   try {
     const { username, password } = req.body || {};
     if (!isValidUsername(username) || !isValidPassword(password)) {
@@ -207,15 +265,17 @@ const playerRoom = new Map(); // socketId -> roomId
  */
 function generateRoomId() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  for (let attempt = 0; attempt < 20; attempt++) {
+  for (let attempt = 0; attempt < 30; attempt++) {
+    // crypto.randomBytes で衝突しにくい ID を生成
+    const buf = crypto.randomBytes(ROOM_ID_LENGTH);
     let id = '';
     for (let i = 0; i < ROOM_ID_LENGTH; i++) {
-      id += chars[Math.floor(Math.random() * chars.length)];
+      id += chars[buf[i] % chars.length];
     }
     if (!rooms.has(id)) return id;
   }
-  // 万一全て衝突した場合はタイムスタンプベースでフォールバック
-  return 'R' + Date.now().toString(36).toUpperCase().slice(-5);
+  // 全部衝突したら長めの ID で再試行
+  return 'R' + crypto.randomBytes(4).toString('hex').toUpperCase();
 }
 
 /**
