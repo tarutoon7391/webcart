@@ -1699,13 +1699,15 @@ class Kart {
                 let target = karts.find(k => k.rank === this.rank - 1 && !k.isFinished);
                 if (target === this) target = null;
                 const startPos = new THREE.Vector3(pos.x + fwdDir.x * 2, pos.y, pos.z + fwdDir.z * 2);
-                createProjectile('🔴', startPos, this, target ?? pickProjectileTarget('🔴', this, startPos, fwdDir), fwdDir);
+                const projectileTarget = target ?? pickProjectileTarget('🔴', this, startPos, fwdDir);
+                createProjectile('🔴', startPos, this, projectileTarget, fwdDir);
             } else if (itemToUse === '🔵') {
                 let target = karts.find(k => k.rank === 1 && !k.isFinished);
                 if (target === this) target = karts.find(k => k.rank === 2 && !k.isFinished);
                 if (target === this) target = null;
                 const startPos = new THREE.Vector3(pos.x + fwdDir.x * 2, pos.y + 2, pos.z + fwdDir.z * 2);
-                createProjectile('🔵', startPos, this, target ?? pickProjectileTarget('🔵', this, startPos, fwdDir), fwdDir);
+                const projectileTarget = target ?? pickProjectileTarget('🔵', this, startPos, fwdDir);
+                createProjectile('🔵', startPos, this, projectileTarget, fwdDir);
             }
             this.item = null;
             if (this.isPlayer) updateHUDItem('');
@@ -1774,6 +1776,9 @@ class Kart {
 const PROJECTILE_HIT_DISTANCE = 2.5;
 const PROJECTILE_HIT_DISTANCE_SQ = PROJECTILE_HIT_DISTANCE * PROJECTILE_HIT_DISTANCE;
 const MIN_PROJECTILE_TRACKING_DISTANCE = 0.001;
+const BLUE_PROJECTILE_BASE_HEIGHT = 1.5;
+const BLUE_PROJECTILE_FLOAT_FREQUENCY = 0.01;
+const BLUE_PROJECTILE_FLOAT_AMPLITUDE = 0.5;
 
 function createTrap(pos, ownerKart) {
     const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.2, 8), new THREE.MeshStandardMaterial({color: 0xffff00}));
@@ -1885,7 +1890,7 @@ function createProjectile(type, startPos, ownerKart, targetKart, fwdDir) {
         mesh: mesh,
         owner: ownerKart,
         target: normalizeProjectileTarget(targetKart),
-        fwd: fwdDir.clone(),
+        fwd: fwdDir,
         speed: type === '🔵' ? 50 : 35,
         active: true,
         life: 8.0
@@ -1920,7 +1925,10 @@ function updateProjectiles(dt) {
                 p.mesh.position.z += p.fwd.z * p.speed * dt;
             }
 
-            if (p.type === '🔵') p.mesh.position.y = 1.5 + Math.sin(performance.now()*0.01)*0.5;
+            if (p.type === '🔵') {
+                p.mesh.position.y = BLUE_PROJECTILE_BASE_HEIGHT +
+                    Math.sin(performance.now() * BLUE_PROJECTILE_FLOAT_FREQUENCY) * BLUE_PROJECTILE_FLOAT_AMPLITUDE;
+            }
             p.mesh.rotation.y += dt * 20; p.mesh.rotation.x += dt * 10;
 
             const hitTarget = findProjectileHitTarget(p);
