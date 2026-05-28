@@ -57,6 +57,11 @@ async function initDb() {
 // ===========================================================================
 app.use(express.json());
 
+if (IS_PRODUCTION) {
+  // Railway などのリバースプロキシ配下で secure cookie を正しく扱う
+  app.set('trust proxy', 1);
+}
+
 const sessionMiddleware = session({
   secret: SESSION_SECRET,
   resave: false,
@@ -335,14 +340,15 @@ function leaveCurrentRoom(socket, reason) {
 }
 
 io.on('connection', (socket) => {
-  // セッションからユーザー情報を取得（未ログインの場合は null）
-  const session = socket.request.session;
-  const sessionUsername = session && session.username ? session.username : null;
+  function getSessionUsername() {
+    const session = socket.request.session;
+    return session && session.username ? session.username : null;
+  }
 
   // ルーム作成（ホストとして自動入室）
   socket.on('create_room', (payload = {}, ack) => {
     const username =
-      sessionUsername ||
+      getSessionUsername() ||
       (typeof payload.username === 'string' && payload.username.trim()) ||
       null;
     if (!username) {
@@ -370,7 +376,7 @@ io.on('connection', (socket) => {
   socket.on('join_room', (payload = {}, ack) => {
     const { roomId } = payload;
     const username =
-      sessionUsername ||
+      getSessionUsername() ||
       (typeof payload.username === 'string' && payload.username.trim()) ||
       null;
     if (!username) {
