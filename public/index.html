@@ -825,6 +825,94 @@ function getRandomItem(rank, totalKarts) {
     else { if (r < 0.2) return '🔵'; if (r < 0.6) return '🍄'; if (r < 0.9) return '🔴'; return '🍌'; }
 }
 
+function safeSceneRemove(obj) {
+    if (!obj || !obj.parent) return;
+    obj.parent.remove(obj);
+}
+
+function safeWorldRemoveBody(body) {
+    if (!body || !world || body.world !== world) return;
+    world.removeBody(body);
+}
+
+function logItemError(context, error) {
+    console.error(`[WebKart][Item] ${context}`, error);
+}
+
+function safelyHitKart(kart, context) {
+    try {
+        if (kart && typeof kart.hitShell === 'function') kart.hitShell();
+    } catch (error) {
+        logItemError(`${context}: hitShell`, error);
+    }
+}
+
+function createNameLabelTexture(text) {
+    const label = String(text || 'プレイヤー').trim() || 'プレイヤー';
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.82)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.lineWidth = 6;
+    const x = 10, y = 10, w = canvas.width - 20, h = canvas.height - 20, r = 28;
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '700 44px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, canvas.width / 2, canvas.height / 2);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.minFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
+    return texture;
+}
+
+function createNameLabelSprite(text) {
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: createNameLabelTexture(text),
+        transparent: true,
+        depthWrite: false,
+    }));
+    sprite.scale.set(6.2, 1.55, 1);
+    sprite.position.set(0, 3.1, 0);
+    sprite.renderOrder = 30;
+    sprite.userData.labelText = String(text || 'プレイヤー').trim() || 'プレイヤー';
+    return sprite;
+}
+
+function updateNameLabelSprite(sprite, text) {
+    const nextText = String(text || 'プレイヤー').trim() || 'プレイヤー';
+    if (!sprite) return createNameLabelSprite(nextText);
+    if (sprite.userData.labelText === nextText) return sprite;
+    const oldMap = sprite.material.map;
+    sprite.material.map = createNameLabelTexture(nextText);
+    sprite.material.needsUpdate = true;
+    sprite.userData.labelText = nextText;
+    if (oldMap) oldMap.dispose();
+    return sprite;
+}
+
+function disposeNameLabelSprite(sprite) {
+    if (!sprite || !sprite.material) return;
+    if (sprite.material.map) sprite.material.map.dispose();
+    sprite.material.dispose();
+}
+
 // ==========================================
 // 4. Particle System
 // ==========================================
@@ -1242,6 +1330,7 @@ class Kart {
         this.mesh = new THREE.Group();
         this.buildKartModel();
         scene.add(this.mesh);
+        this.setNameLabel(this.isPlayer ? (Net.getMyUsername() || 'プレイヤー') : `CPU ${this.index + 1}`);
 
         this.speed = 0;
         this.baseMaxSpeed = 30; this.maxSpeed = 30;
@@ -1330,6 +1419,15 @@ class Kart {
         this.driver.add(eyeR); this.driver.add(eyeL); this.driver.add(mustache);
         this.driver.add(hat1); this.driver.add(hat2);
         this.mesh.add(this.driver);
+    }
+
+    setNameLabel(name) {
+        if (!this.nameLabel) {
+            this.nameLabel = createNameLabelSprite(name);
+            this.mesh.add(this.nameLabel);
+            return;
+        }
+        updateNameLabelSprite(this.nameLabel, name);
     }
 
     update(dt) {
@@ -1551,14 +1649,23 @@ class Kart {
             }
         });
         traps.forEach(trap => {
-            // C. ownerCooldown の減算はここではなく animate() 内の1回のみに移動済み
-            const dSq = Math.pow(this.body.position.x - trap.mesh.position.x, 2) + Math.pow(this.body.position.z - trap.mesh.position.z, 2);
-            if (trap.active && dSq < 4) {
-                // オーナークールダウン中は自分に当たらない
-                if (trap.owner === this && trap.ownerCooldown > 0) return;
-                trap.active = false; trap.mesh.visible = false;
-                scene.remove(trap.mesh);
-                this.hitShell();
+            try {
+                // C. ownerCooldown の減算はここではなく animate() 内の1回のみに移動済み
+                const dSq = Math.pow(this.body.position.x - trap.mesh.position.x, 2) + Math.pow(this.body.position.z - trap.mesh.position.z, 2);
+                if (trap.active && dSq < 4) {
+                    // オーナークールダウン中は自分に当たらない
+                    if (trap.owner === this && trap.ownerCooldown > 0) return;
+                    trap.active = false;
+                    trap.mesh.visible = false;
+                    safeSceneRemove(trap.mesh);
+                    safelyHitKart(this, 'バナナ接触');
+                }
+            } catch (error) {
+                logItemError('checkCollisions trap', error);
+                if (trap) {
+                    trap.active = false;
+                    if (trap.mesh) trap.mesh.visible = false;
+                }
             }
         });
     }
@@ -1578,27 +1685,35 @@ class Kart {
 
     useItem() {
         if (!this.item) return;
+        const itemToUse = this.item;
         const pos = this.body.position;
         const fwdDir = new THREE.Vector3(0,0,1).applyAxisAngle(new THREE.Vector3(0,1,0), this.rotationY);
-        
-        if (this.item === '🍄') { this.applyBoost(2.0); }
-        else if (this.item === '🍌') {
-            const trapPos = new THREE.Vector3(pos.x - fwdDir.x * 2, pos.y, pos.z - fwdDir.z * 2);
-            createTrap(trapPos, this);
-        } else if (this.item === '🔴') {
-            let target = karts.find(k => k.rank === this.rank - 1 && !k.isFinished);
-            if (target === this) target = null;
-            const startPos = new THREE.Vector3(pos.x + fwdDir.x * 2, pos.y, pos.z + fwdDir.z * 2);
-            createProjectile('🔴', startPos, this, target, fwdDir);
-        } else if (this.item === '🔵') {
-            let target = karts.find(k => k.rank === 1 && !k.isFinished);
-            if (target === this) target = karts.find(k => k.rank === 2 && !k.isFinished);
-            if (target === this) target = null;
-            const startPos = new THREE.Vector3(pos.x + fwdDir.x * 2, pos.y + 2, pos.z + fwdDir.z * 2);
-            createProjectile('🔵', startPos, this, target, fwdDir);
+
+        try {
+            if (itemToUse === '🍄') {
+                this.applyBoost(2.0);
+            } else if (itemToUse === '🍌') {
+                const trapPos = new THREE.Vector3(pos.x - fwdDir.x * 2, pos.y, pos.z - fwdDir.z * 2);
+                createTrap(trapPos, this);
+            } else if (itemToUse === '🔴') {
+                let target = karts.find(k => k.rank === this.rank - 1 && !k.isFinished);
+                if (target === this) target = null;
+                const startPos = new THREE.Vector3(pos.x + fwdDir.x * 2, pos.y, pos.z + fwdDir.z * 2);
+                const projectileTarget = target ?? pickProjectileTarget('🔴', this, startPos, fwdDir);
+                createProjectile('🔴', startPos, this, projectileTarget, fwdDir);
+            } else if (itemToUse === '🔵') {
+                let target = karts.find(k => k.rank === 1 && !k.isFinished);
+                if (target === this) target = karts.find(k => k.rank === 2 && !k.isFinished);
+                if (target === this) target = null;
+                const startPos = new THREE.Vector3(pos.x + fwdDir.x * 2, pos.y + 2, pos.z + fwdDir.z * 2);
+                const projectileTarget = target ?? pickProjectileTarget('🔵', this, startPos, fwdDir);
+                createProjectile('🔵', startPos, this, projectileTarget, fwdDir);
+            }
+            this.item = null;
+            if (this.isPlayer) updateHUDItem('');
+        } catch (error) {
+            logItemError(`useItem ${itemToUse}`, error);
         }
-        this.item = null;
-        if (this.isPlayer) updateHUDItem('');
     }
 
     hitShell() {
@@ -1658,10 +1773,110 @@ class Kart {
 }
 
 // 罠（バナナ）と甲羅の生成・更新
+const PROJECTILE_HIT_DISTANCE = 2.5;
+const PROJECTILE_HIT_DISTANCE_SQ = PROJECTILE_HIT_DISTANCE * PROJECTILE_HIT_DISTANCE;
+const MIN_PROJECTILE_TRACKING_DISTANCE = 0.001;
+const BLUE_PROJECTILE_BASE_HEIGHT = 1.5;
+const BLUE_PROJECTILE_FLOAT_FREQUENCY = 0.01;
+const BLUE_PROJECTILE_FLOAT_AMPLITUDE = 0.5;
+
 function createTrap(pos, ownerKart) {
     const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.2, 8), new THREE.MeshStandardMaterial({color: 0xffff00}));
     mesh.position.copy(pos); mesh.position.y = 0.2; scene.add(mesh);
     traps.push({ mesh, active: true, owner: ownerKart, ownerCooldown: 1.5 });
+}
+
+function normalizeProjectileTarget(target) {
+    if (!target) return null;
+    if (target.kind) return target;
+    return { kind: 'local', kart: target };
+}
+
+function getProjectileCandidates(ownerKart) {
+    const localTargets = karts
+        .filter(k => k !== ownerKart && !k.isFinished)
+        .map(k => ({ kind: 'local', kart: k }));
+    return localTargets.concat(Net.getRemoteProjectileTargets());
+}
+
+function isProjectileTargetActive(target) {
+    if (!target) return false;
+    if (target.kind === 'local') {
+        return !!(target.kart && !target.kart.isFinished && target.kart.mesh && target.kart.mesh.parent);
+    }
+    if (target.kind === 'remote') {
+        return !!(target.position && target.mesh && target.mesh.parent);
+    }
+    return false;
+}
+
+function getProjectileTargetPosition(target) {
+    if (!isProjectileTargetActive(target)) return null;
+    return target.kind === 'local' ? target.kart.body.position : target.position;
+}
+
+function pickProjectileTarget(type, ownerKart, origin, fwdDir) {
+    let candidates = getProjectileCandidates(ownerKart).filter(isProjectileTargetActive);
+    if (!candidates.length) return null;
+    if (type === '🔴' && fwdDir) {
+        const forwardCandidates = candidates.filter(candidate => {
+            const pos = getProjectileTargetPosition(candidate);
+            if (!pos) return false;
+            const dx = pos.x - origin.x;
+            const dz = pos.z - origin.z;
+            return dx * fwdDir.x + dz * fwdDir.z > 0;
+        });
+        if (forwardCandidates.length) candidates = forwardCandidates;
+    }
+    let best = null;
+    let bestDistSq = Infinity;
+    candidates.forEach(candidate => {
+        const pos = getProjectileTargetPosition(candidate);
+        if (!pos) return;
+        const dx = pos.x - origin.x;
+        const dz = pos.z - origin.z;
+        const distSq = dx * dx + dz * dz;
+        if (distSq < bestDistSq) {
+            bestDistSq = distSq;
+            best = candidate;
+        }
+    });
+    return best;
+}
+
+function findProjectileHitTarget(projectile) {
+    let best = null;
+    let bestDistSq = Infinity;
+    getProjectileCandidates(projectile.owner).forEach(candidate => {
+        const pos = getProjectileTargetPosition(candidate);
+        if (!pos) return;
+        const dx = pos.x - projectile.mesh.position.x;
+        const dz = pos.z - projectile.mesh.position.z;
+        const distSq = dx * dx + dz * dz;
+        if (distSq < PROJECTILE_HIT_DISTANCE_SQ && distSq < bestDistSq) {
+            bestDistSq = distSq;
+            best = candidate;
+        }
+    });
+    return best;
+}
+
+function destroyProjectile(projectile) {
+    if (!projectile) return;
+    projectile.active = false;
+    if (projectile.mesh) projectile.mesh.visible = false;
+    safeSceneRemove(projectile.mesh);
+}
+
+function handleProjectileHit(projectile, target) {
+    const hitPos = projectile.mesh.position.clone();
+    if (target.kind === 'local') {
+        safelyHitKart(target.kart, `${projectile.type} 命中`);
+    } else if (target.kind === 'remote') {
+        Net.notifyItemHit(target.id, projectile.type);
+    }
+    destroyProjectile(projectile);
+    for(let i=0; i<15; i++) ParticleSys.spawn(hitPos, projectile.type === '🔴' ? 0xff0000 : 0x0000ff, 15);
 }
 
 function createProjectile(type, startPos, ownerKart, targetKart, fwdDir) {
@@ -1670,37 +1885,58 @@ function createProjectile(type, startPos, ownerKart, targetKart, fwdDir) {
     mesh.position.copy(startPos);
     const spike = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.4, 4), new THREE.MeshStandardMaterial({color: 0xdddddd}));
     spike.position.y = 0.4; mesh.add(spike); scene.add(mesh);
-    activeProjectiles.push({ type: type, mesh: mesh, owner: ownerKart, target: targetKart, fwd: fwdDir, speed: type === '🔵' ? 50 : 35, active: true, life: 8.0 });
+    activeProjectiles.push({
+        type: type,
+        mesh: mesh,
+        owner: ownerKart,
+        target: normalizeProjectileTarget(targetKart),
+        fwd: fwdDir,
+        speed: type === '🔵' ? 50 : 35,
+        active: true,
+        life: 8.0
+    });
 }
 
 function updateProjectiles(dt) {
     activeProjectiles.forEach(p => {
-        if(!p.active) return;
-        p.life -= dt;
-        if(p.life <= 0) {
-            p.active = false; p.mesh.visible = false;
-            scene.remove(p.mesh); // メッシュをシーンから除去してリーク防止
-            return;
-        }
-
-        if (p.target && !p.target.isFinished) {
-            const dx = p.target.body.position.x - p.mesh.position.x;
-            const dz = p.target.body.position.z - p.mesh.position.z;
-            const dist = Math.sqrt(dx*dx + dz*dz);
-            if (dist < 2.5) {
-                p.target.hitShell(); p.active = false; p.mesh.visible = false;
-                scene.remove(p.mesh);
-                for(let i=0; i<15; i++) ParticleSys.spawn(p.mesh.position, p.type === '🔴' ? 0xff0000 : 0x0000ff, 15);
+        try {
+            if(!p.active) return;
+            p.life -= dt;
+            if(p.life <= 0) {
+                destroyProjectile(p);
                 return;
             }
-            p.mesh.position.x += (dx / dist) * p.speed * dt;
-            p.mesh.position.z += (dz / dist) * p.speed * dt;
-        } else {
-            p.mesh.position.x += p.fwd.x * p.speed * dt;
-            p.mesh.position.z += p.fwd.z * p.speed * dt;
+
+            if (!isProjectileTargetActive(p.target)) {
+                p.target = pickProjectileTarget(p.type, p.owner, p.mesh.position, p.fwd);
+            }
+
+            const targetPos = getProjectileTargetPosition(p.target);
+            if (targetPos) {
+                const dx = targetPos.x - p.mesh.position.x;
+                const dz = targetPos.z - p.mesh.position.z;
+                const dist = Math.sqrt(dx * dx + dz * dz);
+                if (dist > MIN_PROJECTILE_TRACKING_DISTANCE) {
+                    p.mesh.position.x += (dx / dist) * p.speed * dt;
+                    p.mesh.position.z += (dz / dist) * p.speed * dt;
+                }
+            } else {
+                p.mesh.position.x += p.fwd.x * p.speed * dt;
+                p.mesh.position.z += p.fwd.z * p.speed * dt;
+            }
+
+            if (p.type === '🔵') {
+                p.mesh.position.y = BLUE_PROJECTILE_BASE_HEIGHT +
+                    Math.sin(performance.now() * BLUE_PROJECTILE_FLOAT_FREQUENCY) * BLUE_PROJECTILE_FLOAT_AMPLITUDE;
+            }
+            p.mesh.rotation.y += dt * 20; p.mesh.rotation.x += dt * 10;
+
+            const hitTarget = findProjectileHitTarget(p);
+            if (hitTarget) handleProjectileHit(p, hitTarget);
+        } catch (error) {
+            logItemError(`updateProjectiles ${p.type}`, error);
+            destroyProjectile(p);
         }
-        if (p.type === '🔵') p.mesh.position.y = 1.5 + Math.sin(performance.now()*0.01)*0.5;
-        p.mesh.rotation.y += dt * 20; p.mesh.rotation.x += dt * 10;
     });
     // 不活性な弾丸を配列から除去
     activeProjectiles = activeProjectiles.filter(p => p.active);
@@ -1943,9 +2179,7 @@ const Net = (() => {
             updateRemoteKart(data);
         });
         socket.on('hit_by_item', () => {
-            if (playerKart && typeof playerKart.hitShell === 'function') {
-                playerKart.hitShell();
-            }
+            safelyHitKart(playerKart, 'オンライン被弾');
         });
         socket.on('lap_complete', ({ username, lap }) => {
             showLapToast(`${username} が Lap ${lap} を完了`);
@@ -1973,10 +2207,13 @@ const Net = (() => {
         let rk = remoteKarts.get(id);
         if (rk) return rk;
         const mesh = buildRemoteKartMesh(remoteKarts.size + 1);
+        const nameLabel = createNameLabelSprite(username || 'プレイヤー');
+        mesh.add(nameLabel);
         scene.add(mesh);
         // 名前ラベル
         rk = {
             mesh,
+            nameLabel,
             username: username || '',
             current: { pos: new THREE.Vector3(), rot: 0 },
             target:  { pos: new THREE.Vector3(), rot: 0 },
@@ -1989,6 +2226,7 @@ const Net = (() => {
         if (!scene || !data || !data.position) return;
         const rk = ensureRemoteKart(data.id, data.username);
         rk.username = data.username || rk.username;
+        rk.nameLabel = updateNameLabelSprite(rk.nameLabel, rk.username || 'プレイヤー');
         rk.target.pos.set(data.position.x, data.position.y, data.position.z);
         rk.target.rot = data.rotation;
         if (!rk.initialized) {
@@ -1998,7 +2236,10 @@ const Net = (() => {
         }
     }
     function clearRemoteKarts() {
-        remoteKarts.forEach(rk => { if (scene) scene.remove(rk.mesh); });
+        remoteKarts.forEach(rk => {
+            disposeNameLabelSprite(rk.nameLabel);
+            safeSceneRemove(rk.mesh);
+        });
         remoteKarts.clear();
     }
     function buildRemoteKartMesh(colorIdx) {
@@ -2158,6 +2399,18 @@ const Net = (() => {
         notifyItemHit,
         clearRemoteKarts,
         getRemoteKartIds,
+        getMyUsername() { return myUsername; },
+        getRemoteProjectileTargets() {
+            return Array.from(remoteKarts.entries())
+                .filter(([, rk]) => rk.initialized)
+                .map(([id, rk]) => ({
+                    kind: 'remote',
+                    id,
+                    username: rk.username,
+                    position: rk.current.pos,
+                    mesh: rk.mesh,
+                }));
+        },
         returnToLobby() {
             isMultiplayer = false;
             clearRemoteKarts();
@@ -2300,7 +2553,11 @@ function showTouchControls(show) {
 
 function startSequence() {
     // ③ 旧カートが残っている場合のクリーンアップ（多重呼び出し・異常遷移対策）
-    karts.forEach(k => { scene.remove(k.mesh); try { world.removeBody(k.body); } catch(e){} });
+    karts.forEach(k => {
+        if (k && k.nameLabel) disposeNameLabelSprite(k.nameLabel);
+        safeSceneRemove(k.mesh);
+        safeWorldRemoveBody(k.body);
+    });
     karts = [];
 
     // タイトルプレビューを破棄してレースシーンへ
@@ -2317,7 +2574,7 @@ function startSequence() {
     lapTimes = []; lapStartTime = 0; minimapCtx = null;
     raceGeneration++; // B. 世代を進めて前レースの setTimeout を無効化
     // ② itemBoxes を createTrack() より前にクリア（メッシュ残存防止）
-    itemBoxes.forEach(box => scene.remove(box.mesh));
+    itemBoxes.forEach(box => safeSceneRemove(box.mesh));
     itemBoxes = [];
     createTrack(COURSE_DATA[selectedCourse]);
     karts = []; finishedCount = 0;
@@ -2375,9 +2632,13 @@ function startSequence() {
 function resetGame() {
     // A. カウントダウン中にリトライされてもタイマーを確実にキャンセル
     if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
-    karts.forEach(k => { scene.remove(k.mesh); world.removeBody(k.body); });
-    traps.forEach(t => scene.remove(t.mesh));
-    activeProjectiles.forEach(p => scene.remove(p.mesh));
+    karts.forEach(k => {
+        if (k && k.nameLabel) disposeNameLabelSprite(k.nameLabel);
+        safeSceneRemove(k.mesh);
+        safeWorldRemoveBody(k.body);
+    });
+    traps.forEach(t => safeSceneRemove(t.mesh));
+    activeProjectiles.forEach(p => safeSceneRemove(p.mesh));
     traps = []; activeProjectiles = [];
     finishedCount = 0; wKeyPressStartTime = 0; isWKeyPressed = false;
     lapTimes = []; lapStartTime = 0; minimapCtx = null;
@@ -2389,7 +2650,7 @@ function resetGame() {
 
     // アイテムボックス削除は startSequence() 側の createTrack() 直前で行うため、
     // ここでは参照だけクリア（scene.remove は startSequence で実施）
-    itemBoxes.forEach(box => { scene.remove(box.mesh); });
+    itemBoxes.forEach(box => { safeSceneRemove(box.mesh); });
     itemBoxes = [];
     
     ParticleSys.particles.forEach(p => { p.life = 0; p.mesh.visible = false; });
