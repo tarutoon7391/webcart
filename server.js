@@ -139,6 +139,7 @@ const MAX_PLAYERS = 8;
 const MAX_LAPS = 99;
 const ROOM_ID_LENGTH = 6;
 const ITEM_TYPES = ['🍄', '🍌', '🔴', '🔵'];
+const LEGACY_ITEM_TYPES = ['shell', 'banana', 'mushroom', 'star', 'bomb'];
 const COURSE_IDS = ['mario_circuit', 'desert', 'night'];
 
 function isValidUsername(value) {
@@ -472,7 +473,8 @@ io.on('connection', (socket) => {
   // アイテムヒット
   socket.on('item_hit', (payload = {}) => {
     const { targetId, itemType } = payload;
-    if (typeof targetId !== 'string' || !ITEM_TYPES.includes(itemType)) return;
+    if (typeof targetId !== 'string') return;
+    if (!ITEM_TYPES.includes(itemType) && !LEGACY_ITEM_TYPES.includes(itemType)) return;
     const roomId = playerRoom.get(socket.id);
     if (!roomId) return;
     if (playerRoom.get(targetId) !== roomId) return;

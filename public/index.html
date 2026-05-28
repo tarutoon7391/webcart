@@ -1686,9 +1686,6 @@ class Kart {
     useItem() {
         if (!this.item) return;
         const itemToUse = this.item;
-        this.item = null;
-        if (this.isPlayer) updateHUDItem('');
-
         const pos = this.body.position;
         const fwdDir = new THREE.Vector3(0,0,1).applyAxisAngle(new THREE.Vector3(0,1,0), this.rotationY);
 
@@ -1710,6 +1707,8 @@ class Kart {
                 const startPos = new THREE.Vector3(pos.x + fwdDir.x * 2, pos.y + 2, pos.z + fwdDir.z * 2);
                 createProjectile('🔵', startPos, this, target || pickProjectileTarget('🔵', this, startPos, fwdDir), fwdDir);
             }
+            this.item = null;
+            if (this.isPlayer) updateHUDItem('');
         } catch (error) {
             logItemError(`useItem ${itemToUse}`, error);
         }
