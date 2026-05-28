@@ -138,7 +138,7 @@ const MAX_PASSWORD_LENGTH = 128;
 const MAX_PLAYERS = 8;
 const MAX_LAPS = 99;
 const ROOM_ID_LENGTH = 6;
-const ITEM_TYPES = ['shell', 'banana', 'mushroom', 'star', 'bomb', '🍄', '🍌', '🔴', '🔵'];
+const ITEM_TYPES = ['🍄', '🍌', '🔴', '🔵'];
 const COURSE_IDS = ['mario_circuit', 'desert', 'night'];
 
 function isValidUsername(value) {
